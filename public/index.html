@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TaskFlow Pro</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <section id="auth-view" class="auth-wrap">
+      <div class="auth-brand">
+        <p class="badge-soft">TaskFlow Pro</p>
+        <h1>Organize execution like a product team.</h1>
+        <p>
+          Notion-inspired clarity. Stripe-level polish. Plan, prioritize, and ship tasks with an
+          elegant workflow system.
+        </p>
+      </div>
+      <div class="auth-card">
+        <div class="auth-tabs">
+          <button id="tab-login" type="button" class="tab-btn active">Login</button>
+          <button id="tab-register" type="button" class="tab-btn">Create account</button>
+        </div>
+        <form id="auth-form">
+          <label id="name-group" class="hidden">
+            Name
+            <input id="name" placeholder="John Doe" />
+          </label>
+          <label>
+            Email
+            <input id="email" type="email" required placeholder="you@company.com" />
+          </label>
+          <label>
+            Password
+            <input id="password" type="password" minlength="6" required placeholder="••••••••" />
+          </label>
+          <button id="auth-submit" class="btn btn-primary" type="submit">Login</button>
+        </form>
+        <section id="verification-panel" class="verify-box hidden">
+          <p id="verification-message" class="muted"></p>
+          <label>
+            Verification token
+            <input id="verification-token" placeholder="Paste verification token" />
+          </label>
+          <div class="verify-actions">
+            <button id="verify-email-btn" class="btn btn-primary" type="button">Verify email</button>
+            <button id="resend-verification-btn" class="btn btn-ghost" type="button">Resend email</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <main id="dashboard-view" class="app hidden">
+      <aside class="sidebar">
+        <div>
+          <p class="badge-soft">TaskFlow</p>
+          <h2>Execution Hub</h2>
+          <p id="welcome-text" class="muted"></p>
+        </div>
+        <div class="view-switch">
+          <button id="view-list-btn" class="pill active" type="button">List View</button>
+          <button id="view-board-btn" class="pill" type="button">Board View</button>
+        </div>
+        <button id="new-task-btn" class="btn btn-primary full" type="button">+ New Task</button>
+        <button id="logout-btn" class="btn btn-ghost full" type="button">Logout</button>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar card">
+          <div>
+            <h3>Task Dashboard</h3>
+            <p class="muted">Advanced filters, priorities, tags, and insights in one workspace.</p>
+          </div>
+          <div class="topbar-actions">
+            <label class="checkbox-inline">
+              <input id="filter-archived" type="checkbox" />
+              Show archived
+            </label>
+            <button id="mark-selected-done-btn" class="btn btn-ghost" type="button">
+              Mark selected done
+            </button>
+          </div>
+        </header>
+
+        <section class="stats-grid">
+          <article class="card stat-card">
+            <p>Total Active</p>
+            <strong id="stat-total">0</strong>
+          </article>
+          <article class="card stat-card">
+            <p>Completed</p>
+            <strong id="stat-completed">0</strong>
+          </article>
+          <article class="card stat-card">
+            <p>Overdue</p>
+            <strong id="stat-overdue">0</strong>
+          </article>
+          <article class="card stat-card">
+            <p>Completion Rate</p>
+            <strong id="stat-rate">0%</strong>
+          </article>
+        </section>
+
+        <section class="card filters">
+          <div class="filter-grid">
+            <label>
+              Search
+              <input id="filter-search" placeholder="Search title, description, tags" />
+            </label>
+            <label>
+              Status
+              <select id="filter-status">
+                <option value="">All</option>
+                <option value="pending">Pending</option>
+                <option value="in-progress">In Progress</option>
+                <option value="done">Done</option>
+              </select>
+            </label>
+            <label>
+              Category
+              <select id="filter-category">
+                <option value="">All</option>
+                <option value="work">Work</option>
+                <option value="personal">Personal</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </label>
+            <label>
+              Priority
+              <select id="filter-priority">
+                <option value="">All</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+            <label>
+              Due
+              <select id="filter-due">
+                <option value="">Any</option>
+                <option value="overdue">Overdue</option>
+                <option value="today">Today</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="none">No due date</option>
+              </select>
+            </label>
+            <label>
+              Sort By
+              <select id="filter-sort-by">
+                <option value="createdAt">Created</option>
+                <option value="updatedAt">Updated</option>
+                <option value="dueDate">Due date</option>
+                <option value="priority">Priority</option>
+                <option value="title">Title</option>
+                <option value="status">Status</option>
+              </select>
+            </label>
+            <label>
+              Sort Dir
+              <select id="filter-sort-dir">
+                <option value="desc">Descending</option>
+                <option value="asc">Ascending</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section id="list-wrap" class="card">
+          <div id="tasks-empty" class="empty hidden">No tasks match your filters.</div>
+          <div id="tasks-grid" class="task-grid"></div>
+        </section>
+
+        <section id="board-wrap" class="card hidden">
+          <div class="kanban-grid">
+            <div>
+              <h4>Pending</h4>
+              <div id="kanban-pending" class="kanban-column"></div>
+            </div>
+            <div>
+              <h4>In Progress</h4>
+              <div id="kanban-in-progress" class="kanban-column"></div>
+            </div>
+            <div>
+              <h4>Done</h4>
+              <div id="kanban-done" class="kanban-column"></div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="task-modal" class="modal">
+      <form id="task-form" class="modal-content">
+        <h3 id="modal-title">Create Task</h3>
+        <input id="task-id" type="hidden" />
+        <label>
+          Title
+          <input id="task-title" required maxlength="120" />
+        </label>
+        <label>
+          Description
+          <textarea id="task-description" rows="3" maxlength="1000"></textarea>
+        </label>
+        <div class="modal-grid">
+          <label>
+            Category
+            <select id="task-category" required>
+              <option value="work">Work</option>
+              <option value="personal">Personal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="task-status" required>
+              <option value="pending">Pending</option>
+              <option value="in-progress">In Progress</option>
+              <option value="done">Done</option>
+            </select>
+          </label>
+          <label>
+            Priority
+            <select id="task-priority" required>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </label>
+          <label>
+            Due Date
+            <input id="task-due-date" type="datetime-local" />
+          </label>
+        </div>
+        <label>
+          Tags (comma-separated)
+          <input id="task-tags" placeholder="frontend, release, bugfix" />
+        </label>
+        <label class="checkbox-inline">
+          <input id="task-archived" type="checkbox" />
+          Archive this task
+        </label>
+        <div class="modal-actions">
+          <button id="task-cancel" type="button" class="btn btn-ghost">Cancel</button>
+          <button id="task-save" type="submit" class="btn btn-primary">Save Task</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
