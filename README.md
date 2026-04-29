@@ -22,7 +22,8 @@ It combines authentication, advanced task workflows, filtering, analytics, and b
 - JWT-based authentication with bcrypt password hashing and account lockout protection
 - Environment-aware auth rules for development and production
 - Complete task lifecycle: create, update, archive, delete, and bulk status updates
-- Rich task fields: category, status, priority, tags, due date, archived, completedAt
+- Rich task fields: category, status, priority, tags, due date, recurrence, archived, completedAt
+- Recurring tasks (daily/weekly/monthly) with automatic next occurrence generation on completion
 - Filtering, search, sorting, and pagination-ready list endpoints
 - Task insights endpoint with completion and overdue analytics
 - API protection via rate limiting, security middleware, request logging, and centralized error handling
@@ -40,7 +41,7 @@ It combines authentication, advanced task workflows, filtering, analytics, and b
 - **Backend:** Node.js, Express, JWT, bcryptjs
 - **Middleware:** helmet, cors, express-rate-limit, morgan, compression
 - **Email:** nodemailer (SMTP)
-- **Storage:** file-based JSON datastore with atomic writes
+- **Storage:** SQLite datastore with indexed tables and parameterized queries
 - **Frontend:** vanilla HTML, CSS, and JavaScript
 - **Testing:** Jest + Supertest
 
@@ -71,7 +72,7 @@ NODE_ENV=development
 APP_MODE=development
 JWT_SECRET=change-this-secret
 JWT_EXPIRES_IN=1d
-DB_FILE=data\task-db.json
+DB_PATH=data\task-db.sqlite
 RATE_LIMIT_WINDOW_MS=900000
 RATE_LIMIT_MAX=120
 LOG_FILE=logs\access.log
@@ -141,6 +142,8 @@ All task routes require:
   "priority": "high",
   "tags": ["release", "q2"],
   "dueDate": "2026-06-01T10:00:00.000Z",
+  "recurrence": "weekly",
+  "recurrenceEndDate": "2026-12-31T10:00:00.000Z",
   "archived": false
 }
 ```

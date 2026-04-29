@@ -1,7 +1,7 @@
 {
   "name": "autoforge",
   "version": "1.0.0",
-  "description": "Task Management API + Dashboard with JWT auth, rate limiting, and file-based persistence",
+  "description": "Task Management API + Dashboard with JWT auth, rate limiting, and SQLite persistence",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -28,7 +28,9 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
-    "nodemailer": "^8.0.6"
+    "nodemailer": "^8.0.6",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
   },
   "devDependencies": {
     "jest": "^30.3.0",

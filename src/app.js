@@ -3,7 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const compression = require("compression");
-const FileDb = require("./db/fileDb");
+const SqliteDb = require("./db/sqliteDb");
 const env = require("./config/env");
 const apiLimiter = require("./middleware/rateLimiter");
 const { fileLogger, consoleLogger } = require("./middleware/requestLogger");
@@ -18,7 +18,8 @@ const authMiddleware = require("./middleware/authMiddleware");
 
 function createApp() {
   const app = express();
-  const db = new FileDb(env.dbFile);
+  const db = new SqliteDb(env.dbPath);
+  app.locals.db = db;
   const userRepository = new UserRepository(db);
   const taskRepository = new TaskRepository(db);
   const emailService = new EmailService();

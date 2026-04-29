@@ -133,10 +133,16 @@ function fromLocalDateInput(localDateTime) {
 }
 
 function taskMetaChips(task) {
+  const recurrenceChip =
+    task.recurrence && task.recurrence !== "none"
+      ? `<span class="chip tag">repeats ${task.recurrence}</span>`
+      : "";
+
   return `
     <span class="chip category-${task.category}">${task.category}</span>
     <span class="chip status-${task.status}">${task.status}</span>
     <span class="chip priority-${task.priority}">${task.priority}</span>
+    ${recurrenceChip}
   `;
 }
 
@@ -160,6 +166,7 @@ function taskCardTemplate(task) {
     <div class="task-meta">${taskMetaChips(task)}</div>
     ${task.description ? `<p>${task.description}</p>` : '<p class="muted">No description</p>'}
     ${taskTagsMarkup(task.tags)}
+    ${task.recurrenceEndDate ? `<small class="muted">Repeats until ${new Date(task.recurrenceEndDate).toLocaleString()}</small>` : ""}
     <small class="${isOverdue ? "chip priority-critical" : "muted"}">
       ${task.dueDate ? `Due ${new Date(task.dueDate).toLocaleString()}` : "No due date"}
     </small>
@@ -321,14 +328,29 @@ function openTaskModal(task = null) {
   document.getElementById("task-status").value = task?.status || "pending";
   document.getElementById("task-priority").value = task?.priority || "medium";
   document.getElementById("task-due-date").value = toLocalDateInput(task?.dueDate || null);
+  document.getElementById("task-recurrence").value = task?.recurrence || "none";
+  document.getElementById("task-recurrence-end-date").value = toLocalDateInput(
+    task?.recurrenceEndDate || null
+  );
   document.getElementById("task-tags").value = (task?.tags || []).join(", ");
   document.getElementById("task-archived").checked = Boolean(task?.archived);
   modalTitle.textContent = task ? "Update Task" : "Create Task";
+  syncRecurrenceEndDateState();
   taskModal.showModal();
 }
 
 function closeTaskModal() {
   taskModal.close();
+}
+
+function syncRecurrenceEndDateState() {
+  const recurrence = document.getElementById("task-recurrence").value;
+  const recurrenceEndDateInput = document.getElementById("task-recurrence-end-date");
+  const disabled = recurrence === "none";
+  recurrenceEndDateInput.disabled = disabled;
+  if (disabled) {
+    recurrenceEndDateInput.value = "";
+  }
 }
 
 tabLogin.addEventListener("click", () => switchAuthMode("login"));
@@ -410,6 +432,7 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 
 document.getElementById("new-task-btn").addEventListener("click", () => openTaskModal());
 document.getElementById("task-cancel").addEventListener("click", closeTaskModal);
+document.getElementById("task-recurrence").addEventListener("change", syncRecurrenceEndDateState);
 
 taskForm.addEventListener("submit", (event) =>
   runAction(async () => {
@@ -428,9 +451,15 @@ taskForm.addEventListener("submit", (event) =>
       status: document.getElementById("task-status").value,
       priority: document.getElementById("task-priority").value,
       dueDate: fromLocalDateInput(document.getElementById("task-due-date").value),
+      recurrence: document.getElementById("task-recurrence").value,
+      recurrenceEndDate: fromLocalDateInput(document.getElementById("task-recurrence-end-date").value),
       tags,
       archived: document.getElementById("task-archived").checked,
     };
+
+    if (payload.recurrence === "none") {
+      payload.recurrenceEndDate = null;
+    }
 
     if (taskId) {
       await api(`/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(payload) });
@@ -493,6 +522,7 @@ async function boot() {
   }
 
   switchAuthMode(prefillVerification ? "register" : "login");
+  syncRecurrenceEndDateState();
   if (prefillVerification) {
     setVerificationState("Verification link detected. Click verify email.");
   }

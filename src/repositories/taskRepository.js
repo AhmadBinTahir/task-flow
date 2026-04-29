@@ -1,10 +1,13 @@
 const crypto = require("crypto");
 const { PRIORITY_WEIGHT } = require("../config/constants");
+const HttpError = require("../utils/httpError");
 
 function normalizeTask(task) {
   return {
     ...task,
     priority: task.priority || "medium",
+    recurrence: task.recurrence || "none",
+    recurrenceEndDate: task.recurrenceEndDate || null,
     tags: Array.isArray(task.tags) ? task.tags : [],
     archived: Boolean(task.archived),
     completedAt: task.completedAt || null,
@@ -21,13 +24,44 @@ function getTaskField(task, field) {
   return task[field];
 }
 
+function mapTaskRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  let tags = [];
+  try {
+    const parsed = JSON.parse(row.tags || "[]");
+    tags = Array.isArray(parsed) ? parsed : [];
+  } catch {
+    tags = [];
+  }
+
+  return normalizeTask({
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    description: row.description,
+    category: row.category,
+    status: row.status,
+    dueDate: row.due_date,
+    recurrence: row.recurrence || "none",
+    recurrenceEndDate: row.recurrence_end_date,
+    priority: row.priority,
+    tags,
+    archived: row.archived === 1,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  });
+}
+
 class TaskRepository {
   constructor(db) {
     this.db = db;
   }
 
   async listByUserId(userId, filters = {}) {
-    const data = await this.db.read();
     const {
       status,
       category,
@@ -41,18 +75,32 @@ class TaskRepository {
       offset = 0,
     } = filters;
 
+    const clauses = ["user_id = ?", "archived = ?"];
+    const params = [userId, archived ? 1 : 0];
+
+    if (status) {
+      clauses.push("status = ?");
+      params.push(status);
+    }
+    if (category) {
+      clauses.push("category = ?");
+      params.push(category);
+    }
+    if (priority) {
+      clauses.push("priority = ?");
+      params.push(priority);
+    }
+
+    const rows = await this.db.all(`SELECT * FROM tasks WHERE ${clauses.join(" AND ")}`, params);
+
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
 
-    const filtered = data.tasks
-      .filter((task) => task.userId === userId)
-      .map(normalizeTask)
+    const filtered = rows
+      .map(mapTaskRow)
       .filter((task) => (archived ? task.archived === true : task.archived === false))
-      .filter((task) => (status ? task.status === status : true))
-      .filter((task) => (category ? task.category === category : true))
-      .filter((task) => (priority ? task.priority === priority : true))
       .filter((task) => {
         if (!search) {
           return true;
@@ -104,106 +152,211 @@ class TaskRepository {
   }
 
   async findByIdForUser(id, userId) {
-    const data = await this.db.read();
-    const task = data.tasks.find((item) => item.id === id && item.userId === userId);
-    return task ? normalizeTask(task) : null;
+    const row = await this.db.get("SELECT * FROM tasks WHERE id = ? AND user_id = ?", [id, userId]);
+    return mapTaskRow(row);
   }
 
   async create(userId, payload) {
     const now = new Date().toISOString();
-    const task = {
-      id: crypto.randomUUID(),
-      userId,
-      title: payload.title,
-      description: payload.description || "",
-      category: payload.category,
-      status: payload.status,
-      dueDate: payload.dueDate || null,
-      priority: payload.priority || "medium",
-      tags: payload.tags || [],
-      archived: payload.archived || false,
-      completedAt: payload.status === "done" ? now : null,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const taskId = crypto.randomUUID();
 
-    await this.db.mutate((data) => {
-      data.tasks.push(task);
-      return data;
-    });
+    await this.db.run(
+      `INSERT INTO tasks (
+        id, user_id, title, description, category, status, due_date, recurrence, recurrence_end_date,
+        priority, tags, archived, completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        taskId,
+        userId,
+        payload.title,
+        payload.description || "",
+        payload.category,
+        payload.status,
+        payload.dueDate || null,
+        payload.recurrence || "none",
+        payload.recurrenceEndDate || null,
+        payload.priority || "medium",
+        JSON.stringify(payload.tags || []),
+        payload.archived ? 1 : 0,
+        payload.status === "done" ? now : null,
+        now,
+        now,
+      ]
+    );
 
-    return task;
+    return this.findByIdForUser(taskId, userId);
   }
 
   async update(userId, taskId, payload) {
-    let updatedTask = null;
+    const current = await this.findByIdForUser(taskId, userId);
+    if (!current) {
+      return null;
+    }
+
     const now = new Date().toISOString();
+    const nextStatus = payload.status || current.status;
+    const completedAt =
+      nextStatus === "done" ? current.completedAt || now : payload.status ? null : current.completedAt;
 
-    await this.db.mutate((data) => {
-      const index = data.tasks.findIndex((task) => task.id === taskId && task.userId === userId);
-      if (index === -1) {
-        return data;
-      }
+    const updatedTask = {
+      ...current,
+      ...payload,
+      recurrence: payload.recurrence || current.recurrence || "none",
+      recurrenceEndDate:
+        payload.recurrence === "none"
+          ? null
+          : payload.recurrenceEndDate !== undefined
+            ? payload.recurrenceEndDate
+            : current.recurrenceEndDate || null,
+      completedAt,
+      updatedAt: now,
+    };
 
-      const current = normalizeTask(data.tasks[index]);
-      const nextStatus = payload.status || current.status;
-      const completedAt =
-        nextStatus === "done" ? current.completedAt || now : payload.status ? null : current.completedAt;
+    if (updatedTask.recurrence !== "none" && !updatedTask.dueDate) {
+      throw new HttpError(400, "dueDate is required when recurrence is enabled");
+    }
 
-      updatedTask = {
-        ...current,
-        ...payload,
-        completedAt,
-        updatedAt: now,
-      };
-      data.tasks[index] = updatedTask;
-      return data;
-    });
+    if (updatedTask.recurrence === "none" && updatedTask.recurrenceEndDate) {
+      throw new HttpError(400, "recurrenceEndDate is only allowed when recurrence is enabled");
+    }
 
-    return updatedTask;
+    if (
+      updatedTask.recurrenceEndDate &&
+      updatedTask.dueDate &&
+      new Date(updatedTask.recurrenceEndDate).getTime() < new Date(updatedTask.dueDate).getTime()
+    ) {
+      throw new HttpError(400, "recurrenceEndDate must be after dueDate");
+    }
+
+    await this.db.run(
+      `UPDATE tasks SET
+        title = ?,
+        description = ?,
+        category = ?,
+        status = ?,
+        due_date = ?,
+        recurrence = ?,
+        recurrence_end_date = ?,
+        priority = ?,
+        tags = ?,
+        archived = ?,
+        completed_at = ?,
+        updated_at = ?
+      WHERE id = ? AND user_id = ?`,
+      [
+        updatedTask.title,
+        updatedTask.description || "",
+        updatedTask.category,
+        updatedTask.status,
+        updatedTask.dueDate || null,
+        updatedTask.recurrence,
+        updatedTask.recurrenceEndDate || null,
+        updatedTask.priority,
+        JSON.stringify(updatedTask.tags || []),
+        updatedTask.archived ? 1 : 0,
+        updatedTask.completedAt,
+        updatedTask.updatedAt,
+        taskId,
+        userId,
+      ]
+    );
+
+    const becameDone = current.status !== "done" && updatedTask.status === "done";
+    if (becameDone) {
+      await this.createNextRecurringTask(userId, updatedTask);
+    }
+
+    return normalizeTask(updatedTask);
   }
 
   async delete(userId, taskId) {
-    let removed = false;
-
-    await this.db.mutate((data) => {
-      const before = data.tasks.length;
-      data.tasks = data.tasks.filter((task) => !(task.id === taskId && task.userId === userId));
-      removed = data.tasks.length !== before;
-      return data;
-    });
-
-    return removed;
+    const result = await this.db.run("DELETE FROM tasks WHERE id = ? AND user_id = ?", [taskId, userId]);
+    return result.changes > 0;
   }
 
   async bulkUpdateStatus(userId, taskIds, status) {
     let updatedCount = 0;
-    const now = new Date().toISOString();
-
-    await this.db.mutate((data) => {
-      data.tasks = data.tasks.map((item) => {
-        if (item.userId !== userId || !taskIds.includes(item.id)) {
-          return item;
-        }
+    for (const taskId of taskIds) {
+      // Keep recurrence behavior consistent with single-task updates.
+      // eslint-disable-next-line no-await-in-loop
+      const updated = await this.update(userId, taskId, { status });
+      if (updated) {
         updatedCount += 1;
-        const next = normalizeTask(item);
-        return {
-          ...next,
-          status,
-          completedAt: status === "done" ? next.completedAt || now : null,
-          updatedAt: now,
-        };
-      });
-      return data;
-    });
-
+      }
+    }
     return updatedCount;
   }
 
+  calculateNextDueDate(dueDate, recurrence) {
+    const nextDate = new Date(dueDate);
+    if (Number.isNaN(nextDate.getTime())) {
+      return null;
+    }
+
+    if (recurrence === "daily") {
+      nextDate.setDate(nextDate.getDate() + 1);
+    } else if (recurrence === "weekly") {
+      nextDate.setDate(nextDate.getDate() + 7);
+    } else if (recurrence === "monthly") {
+      nextDate.setMonth(nextDate.getMonth() + 1);
+    } else {
+      return null;
+    }
+
+    return nextDate.toISOString();
+  }
+
+  async createNextRecurringTask(userId, completedTask) {
+    if (completedTask.recurrence === "none" || !completedTask.dueDate) {
+      return null;
+    }
+
+    const nextDueDate = this.calculateNextDueDate(completedTask.dueDate, completedTask.recurrence);
+    if (!nextDueDate) {
+      return null;
+    }
+
+    if (
+      completedTask.recurrenceEndDate &&
+      new Date(nextDueDate).getTime() > new Date(completedTask.recurrenceEndDate).getTime()
+    ) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const nextTaskId = crypto.randomUUID();
+
+    await this.db.run(
+      `INSERT INTO tasks (
+        id, user_id, title, description, category, status, due_date, recurrence, recurrence_end_date,
+        priority, tags, archived, completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nextTaskId,
+        userId,
+        completedTask.title,
+        completedTask.description || "",
+        completedTask.category,
+        "pending",
+        nextDueDate,
+        completedTask.recurrence,
+        completedTask.recurrenceEndDate || null,
+        completedTask.priority || "medium",
+        JSON.stringify(completedTask.tags || []),
+        0,
+        null,
+        now,
+        now,
+      ]
+    );
+
+    return this.findByIdForUser(nextTaskId, userId);
+  }
+
   async getInsights(userId) {
-    const data = await this.db.read();
+    const rows = await this.db.all("SELECT * FROM tasks WHERE user_id = ?", [userId]);
     const now = new Date();
-    const tasks = data.tasks.filter((task) => task.userId === userId).map(normalizeTask);
+    const tasks = rows.map(mapTaskRow);
     const active = tasks.filter((task) => !task.archived);
     const done = active.filter((task) => task.status === "done").length;
     const overdue = active.filter(

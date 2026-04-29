@@ -14,7 +14,7 @@ const env = {
   port: toNumber(process.env.PORT, 4000),
   jwtSecret: process.env.JWT_SECRET || "development-secret-change-me",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "1d",
-  dbFile: process.env.DB_FILE || "data\\task-db.json",
+  dbPath: process.env.DB_PATH || process.env.DB_FILE || "data\\task-db.sqlite",
   rateLimitWindowMs: toNumber(process.env.RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000),
   rateLimitMax: toNumber(process.env.RATE_LIMIT_MAX, 120),
   logFile: process.env.LOG_FILE || "logs\\access.log",

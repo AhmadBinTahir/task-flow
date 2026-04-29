@@ -1,60 +1,104 @@
 const crypto = require("crypto");
 
+function mapUserRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    passwordHash: row.password_hash,
+    emailVerifiedAt: row.email_verified_at,
+    verificationTokenHash: row.verification_token_hash,
+    verificationTokenExpiresAt: row.verification_token_expires_at,
+    failedLoginAttempts: row.failed_login_attempts,
+    lockedUntil: row.locked_until,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 class UserRepository {
   constructor(db) {
     this.db = db;
   }
 
   async findByEmail(email) {
-    const data = await this.db.read();
-    return data.users.find((user) => user.email.toLowerCase() === email.toLowerCase()) || null;
+    const row = await this.db.get("SELECT * FROM users WHERE email = ?", [email.toLowerCase()]);
+    return mapUserRow(row);
   }
 
   async findById(userId) {
-    const data = await this.db.read();
-    return data.users.find((user) => user.id === userId) || null;
+    const row = await this.db.get("SELECT * FROM users WHERE id = ?", [userId]);
+    return mapUserRow(row);
   }
 
   async create({ name, email, passwordHash, emailVerifiedAt, verificationTokenHash, verificationTokenExpiresAt }) {
     const now = new Date().toISOString();
-    const user = {
-      id: crypto.randomUUID(),
-      name,
-      email: email.toLowerCase(),
-      passwordHash,
-      emailVerifiedAt: emailVerifiedAt || null,
-      verificationTokenHash: verificationTokenHash || null,
-      verificationTokenExpiresAt: verificationTokenExpiresAt || null,
-      failedLoginAttempts: 0,
-      lockedUntil: null,
-      createdAt: now,
-      updatedAt: now,
-    };
+    const userId = crypto.randomUUID();
 
-    await this.db.mutate((data) => {
-      data.users.push(user);
-      return data;
-    });
+    await this.db.run(
+      `INSERT INTO users (
+        id, name, email, password_hash, email_verified_at,
+        verification_token_hash, verification_token_expires_at,
+        failed_login_attempts, locked_until, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        name,
+        email.toLowerCase(),
+        passwordHash,
+        emailVerifiedAt || null,
+        verificationTokenHash || null,
+        verificationTokenExpiresAt || null,
+        0,
+        null,
+        now,
+        now,
+      ]
+    );
 
-    return user;
+    return this.findById(userId);
   }
 
   async updateById(userId, partial) {
-    let updated = null;
-    await this.db.mutate((data) => {
-      const index = data.users.findIndex((user) => user.id === userId);
-      if (index === -1) {
-        return data;
+    const columns = {
+      name: "name",
+      email: "email",
+      passwordHash: "password_hash",
+      emailVerifiedAt: "email_verified_at",
+      verificationTokenHash: "verification_token_hash",
+      verificationTokenExpiresAt: "verification_token_expires_at",
+      failedLoginAttempts: "failed_login_attempts",
+      lockedUntil: "locked_until",
+    };
+
+    const updates = [];
+    const values = [];
+
+    Object.entries(columns).forEach(([key, column]) => {
+      if (partial[key] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(key === "email" ? String(partial[key]).toLowerCase() : partial[key]);
       }
-      updated = {
-        ...data.users[index],
-        ...partial,
-        updatedAt: new Date().toISOString(),
-      };
-      data.users[index] = updated;
-      return data;
     });
-    return updated;
+
+    if (updates.length === 0) {
+      return this.findById(userId);
+    }
+
+    const now = new Date().toISOString();
+    updates.push("updated_at = ?");
+    values.push(now, userId);
+
+    const result = await this.db.run(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`, values);
+    if (!result.changes) {
+      return null;
+    }
+
+    return this.findById(userId);
   }
 }
 

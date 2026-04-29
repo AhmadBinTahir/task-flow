@@ -2,6 +2,7 @@ const {
   TASK_CATEGORIES,
   TASK_STATUSES,
   TASK_PRIORITIES,
+  TASK_RECURRENCES,
   TASK_SORT_FIELDS,
 } = require("../config/constants");
 const env = require("../config/env");
@@ -58,6 +59,23 @@ function validateTaskInput(payload, { partial = false } = {}) {
     }
   }
 
+  if (!partial || payload.recurrence !== undefined) {
+    const recurrence = payload.recurrence || "none";
+    if (!TASK_RECURRENCES.includes(recurrence)) {
+      errors.push(`recurrence must be one of: ${TASK_RECURRENCES.join(", ")}`);
+    } else {
+      clean.recurrence = recurrence;
+    }
+  }
+
+  if (payload.recurrenceEndDate !== undefined) {
+    if (payload.recurrenceEndDate && Number.isNaN(Date.parse(payload.recurrenceEndDate))) {
+      errors.push("recurrenceEndDate must be a valid ISO date string");
+    } else {
+      clean.recurrenceEndDate = payload.recurrenceEndDate || null;
+    }
+  }
+
   if (!partial || payload.priority !== undefined) {
     const priority = payload.priority || "medium";
     if (!TASK_PRIORITIES.includes(priority)) {
@@ -92,6 +110,29 @@ function validateTaskInput(payload, { partial = false } = {}) {
     } else {
       clean.archived = payload.archived;
     }
+  }
+
+  const resolvedRecurrence =
+    clean.recurrence !== undefined
+      ? clean.recurrence
+      : !partial
+        ? "none"
+        : payload.recurrence;
+  const hasDueDate = clean.dueDate !== undefined ? Boolean(clean.dueDate) : Boolean(payload.dueDate);
+  if (resolvedRecurrence && resolvedRecurrence !== "none" && !hasDueDate) {
+    errors.push("dueDate is required when recurrence is enabled");
+  }
+
+  if (
+    clean.recurrenceEndDate &&
+    clean.dueDate &&
+    new Date(clean.recurrenceEndDate).getTime() < new Date(clean.dueDate).getTime()
+  ) {
+    errors.push("recurrenceEndDate must be after dueDate");
+  }
+
+  if (clean.recurrence === "none" && clean.recurrenceEndDate) {
+    errors.push("recurrenceEndDate is only allowed when recurrence is enabled");
   }
 
   return { errors, clean };

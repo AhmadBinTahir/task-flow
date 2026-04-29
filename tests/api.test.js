@@ -2,13 +2,22 @@ const path = require("path");
 const fs = require("fs/promises");
 const request = require("supertest");
 
-const testDbFile = path.resolve("data", "task-db.test.json");
+const testDbFile = path.resolve("data", "task-db.test.sqlite");
 const testLogFile = path.resolve("logs", "access.test.log");
+const managedApps = [];
+
+async function cleanupFiles() {
+  await fs.rm(testDbFile, { force: true });
+  await fs.rm(`${testDbFile}-shm`, { force: true });
+  await fs.rm(`${testDbFile}-wal`, { force: true });
+  await fs.rm(testLogFile, { force: true });
+}
 
 async function buildApp(overrides = {}) {
   process.env.NODE_ENV = "test";
   process.env.APP_MODE = "development";
-  process.env.DB_FILE = testDbFile;
+  process.env.DB_PATH = testDbFile;
+  delete process.env.DB_FILE;
   process.env.LOG_FILE = testLogFile;
   process.env.JWT_SECRET = "test-secret";
   process.env.RATE_LIMIT_MAX = "1000";
@@ -22,17 +31,25 @@ async function buildApp(overrides = {}) {
 
   jest.resetModules();
   const createApp = require("../src/app");
-  return createApp();
+  const app = createApp();
+  managedApps.push(app);
+  return app;
 }
 
 beforeEach(async () => {
-  await fs.rm(testDbFile, { force: true });
-  await fs.rm(testLogFile, { force: true });
+  await cleanupFiles();
+});
+
+afterEach(async () => {
+  while (managedApps.length > 0) {
+    const app = managedApps.pop();
+    await app.locals.db.close();
+  }
+  await cleanupFiles();
 });
 
 afterAll(async () => {
-  await fs.rm(testDbFile, { force: true });
-  await fs.rm(testLogFile, { force: true });
+  await cleanupFiles();
 });
 
 describe("Task Management API", () => {
@@ -156,6 +173,87 @@ describe("Task Management API", () => {
     expect(insightsRes.statusCode).toBe(200);
     expect(insightsRes.body.insights.total).toBe(2);
     expect(insightsRes.body.insights.byStatus.done).toBe(2);
+  });
+
+  test("recurring task creates next occurrence when marked done", async () => {
+    const app = await buildApp();
+
+    const authRes = await request(app).post("/api/auth/register").send({
+      name: "Recurring User",
+      email: "recurring@example.com",
+      password: "secret123",
+    });
+    const token = authRes.body.token;
+
+    const baseDueDate = new Date("2026-05-01T10:00:00.000Z").toISOString();
+    const createRes = await request(app)
+      .post("/api/tasks")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "Weekly planning",
+        description: "Prepare sprint priorities",
+        category: "work",
+        status: "in-progress",
+        priority: "high",
+        dueDate: baseDueDate,
+        recurrence: "weekly",
+      });
+
+    expect(createRes.statusCode).toBe(201);
+
+    const completeRes = await request(app)
+      .patch(`/api/tasks/${createRes.body.task.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ status: "done" });
+
+    expect(completeRes.statusCode).toBe(200);
+    expect(completeRes.body.task.status).toBe("done");
+
+    const listRes = await request(app).get("/api/tasks").set("Authorization", `Bearer ${token}`);
+    expect(listRes.statusCode).toBe(200);
+    expect(listRes.body.total).toBe(2);
+
+    const pendingRecurring = listRes.body.tasks.find((task) => task.status === "pending");
+    expect(pendingRecurring).toBeTruthy();
+    expect(pendingRecurring.recurrence).toBe("weekly");
+    expect(pendingRecurring.dueDate).toBe(new Date("2026-05-08T10:00:00.000Z").toISOString());
+  });
+
+  test("update rejects recurrenceEndDate when recurrence is none", async () => {
+    const app = await buildApp();
+
+    const authRes = await request(app).post("/api/auth/register").send({
+      name: "Validation User",
+      email: "validation@example.com",
+      password: "secret123",
+    });
+    const token = authRes.body.token;
+
+    const createRes = await request(app)
+      .post("/api/tasks")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        title: "One-off task",
+        description: "No recurrence",
+        category: "work",
+        status: "pending",
+        priority: "medium",
+      });
+
+    expect(createRes.statusCode).toBe(201);
+    expect(createRes.body.task.recurrence).toBe("none");
+
+    const updateRes = await request(app)
+      .patch(`/api/tasks/${createRes.body.task.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        recurrenceEndDate: new Date("2026-06-01T00:00:00.000Z").toISOString(),
+      });
+
+    expect(updateRes.statusCode).toBe(400);
+    expect(updateRes.body.message).toContain(
+      "recurrenceEndDate is only allowed when recurrence is enabled"
+    );
   });
 
   test("production mode requires email verification before login", async () => {
